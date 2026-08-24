@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components lib auth.ts next.config.mjs scripts types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:seat-lifecycle": "tsx scripts/verify-seat-lifecycle.ts"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",
@@ -26,6 +27,7 @@
     "@types/react-dom": "^19.1.6",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.23",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.2"
   }
 }

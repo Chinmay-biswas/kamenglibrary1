@@ -12,6 +12,7 @@ export default async function AdminSettingsPage() {
   const checks = [
     ["Microsoft sign-in", isAuthenticationConfigured(), "The IITG Microsoft Entra provider is needed for real student access."],
     ["MongoDB storage", canUseMongo(), "When MongoDB is unavailable, the site safely uses local persistent storage."],
+    ["Email alerts", Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM), "Sends reservation-expiry and attendance-check emails alongside in-app notifications."],
     ["QR signing", Boolean(process.env.QR_SIGNING_SECRET), "Set this before printing production QR labels."],
     ["Cron protection", Boolean(process.env.CRON_SECRET), "Use this before exposing scheduled maintenance endpoints."]
   ];

@@ -26,6 +26,7 @@ export function MobileNav({ signedIn, profileComplete, admin }: Props) {
         <nav className="mobile-nav-menu" aria-label="Mobile navigation">
           <Link href="/seats" onClick={() => setOpen(false)}>Availability</Link>
           {signedIn && profileComplete && <Link href="/dashboard" onClick={() => setOpen(false)}>My dashboard</Link>}
+          {signedIn && profileComplete && <Link href="/notifications" onClick={() => setOpen(false)}>Notifications</Link>}
           {admin && <Link href="/admin" onClick={() => setOpen(false)}>Admin</Link>}
           {!signedIn && <Link href="/login" onClick={() => setOpen(false)}>Sign in</Link>}
         </nav>

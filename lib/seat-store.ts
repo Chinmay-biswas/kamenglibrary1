@@ -172,7 +172,14 @@ export async function saveSeat(seat: Partial<SeatRecord> & { id?: string }) {
   if (seat.code) filters.push({ code: seat.code });
   const filter = filters.length ? { $or: filters } : { code: randomUUID() };
   const { id: _id, ...values } = seat;
-  const updated = await SeatModel.findOneAndUpdate(filter, { $set: values }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  const setValues = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
+  const unsetValues = Object.fromEntries(Object.entries(values).filter(([, value]) => value === undefined).map(([key]) => [key, 1]));
+  const update = {
+    ...(Object.keys(setValues).length ? { $set: setValues } : {}),
+    // Mongo ignores undefined in $set, so lifecycle releases must explicitly remove old ownership/timer fields.
+    ...(Object.keys(unsetValues).length ? { $unset: unsetValues } : {})
+  };
+  const updated = await SeatModel.findOneAndUpdate(filter, update, { upsert: true, new: true, setDefaultsOnInsert: true });
   return toSeatRecord(updated);
 }
 

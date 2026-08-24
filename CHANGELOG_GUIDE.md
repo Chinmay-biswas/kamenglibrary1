@@ -4,6 +4,11 @@ This file tracks the implementation changes made in the project so far.
 
 ## 2026-08-24
 
+- Added reliable seat-expiry maintenance: reservations now move from two hours of occupancy into an exact 10-minute re-scan grace period, then release without extending grace after a delayed background job.
+- Added durable holder alerts for grace start, occupied-seat attendance checks, resolved checks, transfers, and reservation release. Alerts are always saved in-app and also email the holder when `RESEND_API_KEY` and `EMAIL_FROM` are configured.
+- Added a secure five-minute GitHub Actions maintenance worker that calls the deployed app's protected lifecycle endpoint, plus student-facing grace instructions and direct Notifications navigation.
+- Fixed MongoDB seat persistence to explicitly remove expired ownership and timer fields instead of relying on ignored `undefined` values during an update.
+- Ensured expired attendance checks are resolved before ordinary seat expiry, so a waiting student receives the seat even when a background run happens late.
 - Changed the entrance Gate QR into a normal Website QR that opens `/seats` on a mobile device without requiring sign-in or creating a gate visit.
 - Removed the Gate QR prerequisite from seat reservations; students now view availability first and reserve only by scanning the printed QR on their chosen seat.
 - Preserved old Gate QR links by redirecting them to live availability instead of leaving users at an obsolete gate scanner.

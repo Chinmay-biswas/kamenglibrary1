@@ -9,7 +9,7 @@ A full Next.js library seat system with Google or Microsoft sign-in, mobile live
 - Live student dashboard, availability map, QR camera/manual scanner, current-seat release, and notifications.
 - A normal entrance Website QR that opens mobile live availability, plus signed Seat QR codes with QR version rotation.
 - Printable A4 PDF QR labels for selected or all active seats.
-- A student can hold only one seat at a time. Scanning an occupied seat starts a 15-minute attendance check, notifies the current holder, and transfers the seat if they do not return.
+- A student can hold only one seat at a time. Each reservation runs for two hours, then a 10-minute re-scan grace period. Scanning an occupied seat starts a separate 15-minute attendance check, notifies the current holder, and transfers the seat if they do not return.
 - Admin dashboard, live projection, seat controls, geofences, challenges, session controls, audit trail, analytics, and readiness checks.
 - Visual layout studio: create rooms, walls, doors, tables, pillars, labels, and seats; click to place them, drag to move them, and edit their size/position in the inspector.
 
@@ -89,6 +89,8 @@ Do not use `common` while the registration is still single-tenant. The tenant ID
 - `NEXT_PUBLIC_APP_URL`: Public base URL encoded into printable QR labels.
 - `AUTH_GOOGLE_ID`: Google OAuth web client ID.
 - `AUTH_GOOGLE_SECRET`: Google OAuth client secret.
+- `RESEND_API_KEY`: Optional Resend API key for email copies of reservation and attendance alerts.
+- `EMAIL_FROM`: A verified Resend sender, such as `Kameng Library <alerts@your-domain.example>`.
 
 Never commit `.env.local`. Rotate any credentials that were ever shared in a repository, chat, or screenshot.
 
@@ -101,6 +103,17 @@ http://localhost:3000/api/auth/callback/google
 ```
 
 Put the client ID and secret into `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`, restart the app, and the **Continue with Google** button will appear. For deployment, add the production callback URI with the same `/api/auth/callback/google` path.
+
+## Seat Timing And Alerts
+
+- A reservation is `OCCUPIED` for two hours.
+- It then enters `GRACE` for 10 minutes. The holder keeps the seat only by scanning that same printed Seat QR again during those 10 minutes.
+- If the holder does not re-scan, the seat becomes `AVAILABLE` for everyone.
+- When another student scans an occupied seat, the holder receives an immediate in-app notification and, when configured, an email. The separate attendance-check timer is 15 minutes.
+
+Email delivery is optional but recommended. Create a Resend API key, verify a sender domain, and add `RESEND_API_KEY` plus `EMAIL_FROM` in Vercel. The app still records in-app notifications when those values are absent.
+
+The repository includes `.github/workflows/seat-maintenance.yml`, which calls the secure production maintenance endpoint every five minutes. In the GitHub repository, add an Actions secret named `CRON_SECRET` with the exact same value as the Vercel `CRON_SECRET`. Optionally add the repository variable `KAMENG_APP_URL` if the production URL is not `https://kamenglibrary1.vercel.app`.
 
 ## Useful Checks
 

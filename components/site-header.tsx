@@ -30,6 +30,7 @@ export async function SiteHeader() {
         <nav className="main-nav" aria-label="Main navigation">
           <Link href="/seats">Availability</Link>
           {user && user.profileComplete && <Link href="/dashboard">My dashboard</Link>}
+          {user && user.profileComplete && <Link href="/notifications">Notifications</Link>}
           {admin && <Link href="/admin">Admin</Link>}
         </nav>
         <MobileNav signedIn={Boolean(user)} profileComplete={Boolean(user?.profileComplete)} admin={admin} />
