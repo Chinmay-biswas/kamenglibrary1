@@ -12,6 +12,7 @@ This file tracks the implementation changes made in the project so far.
 - Kept the one-seat-per-student rule before location verification, so a student must release their current seat before scanning another seat QR.
 - Made expiry dependable without a deployment-specific scheduler: a scan first processes elapsed challenges, and an active challenger countdown performs a protected status refresh exactly when its 15 minutes end.
 - Updated the public floor-plan map on `/` and `/seats` to calculate the actual saved layout bounds, including rotated elements, so rooms and seats placed outside the original board are fitted into view instead of being clipped.
+- Added public Privacy Policy and Terms of Service pages, with a responsive site footer linking to both, for production Google OAuth branding.
 
 ## 2026-08-19
 
