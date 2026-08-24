@@ -19,6 +19,7 @@ This file tracks the implementation changes made in the project so far.
 - Fixed stale-session admin redirects by allowing the configured `SUPER_ADMIN_EMAIL` through the edge middleware before its JWT role claim is refreshed; server pages and APIs retain their independent role checks.
 - Preserved safe internal `callbackUrl` destinations through existing sign-in sessions and first-time profile setup, so an admin request returns to `/admin` instead of always landing on the student dashboard.
 - Replaced the invisible signed-in login redirect with a client-side handoff and visible Continue fallback, preventing a blank `/login?callbackUrl=/admin` page when browser navigation is delayed or intercepted.
+- Removed the duplicate edge middleware after auditing all 11 admin pages and 25 admin API routes for their own server-side authorization guards; restored the standard login redirect and eliminated the `/login` to `/admin` refresh loop.
 
 ## 2026-08-19
 

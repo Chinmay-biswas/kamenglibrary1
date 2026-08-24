@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components lib auth.ts middleware.ts next.config.mjs scripts types",
+    "lint": "eslint app components lib auth.ts next.config.mjs scripts types",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
