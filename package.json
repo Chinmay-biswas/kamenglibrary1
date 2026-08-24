@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint app components lib auth.ts next.config.mjs scripts types",
     "typecheck": "tsc --noEmit",
-    "test:seat-lifecycle": "tsx scripts/verify-seat-lifecycle.ts"
+    "test:seat-lifecycle": "tsx scripts/verify-seat-lifecycle.ts",
+    "test:layout-editing": "tsx scripts/verify-layout-editing.ts"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",

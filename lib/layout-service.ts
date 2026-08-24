@@ -42,7 +42,8 @@ function normalise(element: Partial<LayoutElementRecord> & { type: LayoutElement
     seatId: element.seatId,
     floor: element.floor?.trim() || undefined,
     zone: element.zone?.trim() || undefined,
-    color: element.color
+    color: element.color,
+    locked: element.locked === true
   };
 }
 
@@ -59,8 +60,24 @@ function fromDoc(doc: any): LayoutElementRecord {
     seatId: doc.seatId ? String(doc.seatId) : undefined,
     floor: doc.floor,
     zone: doc.zone,
-    color: doc.color
+    color: doc.color,
+    locked: doc.locked === true
   };
+}
+
+function mergeLayoutChanges(current: LayoutElementRecord, input: Partial<LayoutElementRecord>) {
+  const merged = { ...current, ...input };
+
+  // A lock is enforced by the service too, so a stale client cannot move or resize a protected item.
+  if (current.locked && input.locked !== false) {
+    merged.x = current.x;
+    merged.y = current.y;
+    merged.width = current.width;
+    merged.height = current.height;
+    merged.rotation = current.rotation;
+  }
+
+  return normalise(merged);
 }
 
 function fromBlueprintDoc(doc: any): LayoutBlueprintRecord {
@@ -143,7 +160,7 @@ export async function updateLayoutElement(id: string, input: Partial<LayoutEleme
   if (!canUseMongo()) {
     const index = memoryLayout.findIndex((element) => element.id === id);
     if (index < 0) return undefined;
-    const updated = { ...memoryLayout[index], ...normalise({ ...memoryLayout[index], ...input }) };
+    const updated = { ...memoryLayout[index], ...mergeLayoutChanges(memoryLayout[index], input) };
     memoryLayout[index] = updated;
     await persistLocalLayout();
     return updated;
@@ -151,7 +168,7 @@ export async function updateLayoutElement(id: string, input: Partial<LayoutEleme
   if (!mongoose.isValidObjectId(id)) return undefined;
   const current = await LayoutElementModel.findById(id).lean();
   if (!current) return undefined;
-  const updated = await LayoutElementModel.findByIdAndUpdate(id, normalise({ ...fromDoc(current), ...input }), { new: true });
+  const updated = await LayoutElementModel.findByIdAndUpdate(id, mergeLayoutChanges(fromDoc(current), input), { new: true });
   return updated ? fromDoc(updated) : undefined;
 }
 
@@ -184,6 +201,8 @@ export async function createPlacedSeat(input: {
   y: number;
   width?: number;
   height?: number;
+  rotation?: number;
+  locked?: boolean;
 }) {
   const seats = await getSeatStore();
   const prefix = input.zone?.trim().toUpperCase() || "A";
@@ -203,7 +222,9 @@ export async function createPlacedSeat(input: {
     label: seat.code,
     seatId: seat.id,
     zone: seat.zone,
-    floor: seat.floor
+    floor: seat.floor,
+    rotation: input.rotation,
+    locked: input.locked
   });
   return { seat, element };
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LayoutBlueprintRecord, LayoutElementRecord, LayoutElementType, SeatRecord } from "@/lib/types";
 import { StatusBadge } from "@/components/ui";
+import { panForCursorZoom } from "@/lib/layout-transform";
 
 type Tool = "SELECT" | LayoutElementType;
 type Draft = { label: string; code: string; zone: string; floor: string; width: string; height: string; color: string };
@@ -10,7 +11,8 @@ type QueuedElementSave = { element: LayoutElementRecord; changes: Record<string,
 type DragState = { id: string; ids: string[]; startX: number; startY: number; originals: LayoutElementRecord[]; updates: LayoutElementRecord[] };
 type TransformHistoryEntry = { kind: "transform"; changes: Array<{ id: string; before: LayoutElementRecord; after: LayoutElementRecord }> };
 type DeleteHistoryEntry = { kind: "delete"; snapshots: LayoutElementRecord[]; activeIds: string[] };
-type LayoutHistoryEntry = TransformHistoryEntry | DeleteHistoryEntry;
+type CreateHistoryEntry = { kind: "create"; snapshots: LayoutElementRecord[]; activeIds: string[] };
+type LayoutHistoryEntry = TransformHistoryEntry | DeleteHistoryEntry | CreateHistoryEntry;
 
 const tools: Array<{ type: Tool; label: string; width?: number; height?: number }> = [
   { type: "SELECT", label: "Select / move" },
@@ -62,6 +64,7 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
   const [blueprints, setBlueprints] = useState(initialBlueprints);
   const [blueprintName, setBlueprintName] = useState("");
   const [blueprintWorking, setBlueprintWorking] = useState(false);
+  const [clipboardSize, setClipboardSize] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragPositionRef = useRef<DragState | null>(null);
@@ -71,16 +74,23 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
   const silentSavesRef = useRef(new Map<string, QueuedElementSave>());
   const historyRef = useRef<LayoutHistoryEntry[]>([]);
   const historyIndexRef = useRef(0);
+  const clipboardRef = useRef<LayoutElementRecord[]>([]);
+  const pasteCountRef = useRef(0);
+  const pasteInFlightRef = useRef(false);
   const keyboardActionsRef = useRef<{
     restoreHistory: (direction: "undo" | "redo") => Promise<void>;
     removeLayoutItems: (ids: string[]) => Promise<void>;
     nudgeSelected: (dx: number, dy: number) => Promise<void>;
+    copySelected: () => void;
+    pasteCopied: () => Promise<void>;
   } | null>(null);
 
   const selected = elements.find((element) => element.id === selectedId);
   const selectedSeat = selected?.seatId ? seats.find((seat) => seat.id === selected.seatId) : undefined;
+  const selectedElements = elements.filter((element) => selectedIds.includes(element.id));
+  const allSelectedLocked = selectedElements.length > 0 && selectedElements.every((element) => element.locked);
 
-  keyboardActionsRef.current = { restoreHistory, removeLayoutItems, nudgeSelected };
+  keyboardActionsRef.current = { restoreHistory, removeLayoutItems, nudgeSelected, copySelected, pasteCopied };
 
   useEffect(() => {
     if (!selected) {
@@ -269,6 +279,13 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
     const ids = movingSelection ? selectedIds : [id];
     setSelectedId(id);
     if (!movingSelection) setSelectedIds(ids);
+    const targets = elements.filter((element) => ids.includes(element.id));
+    if (targets.some((element) => element.locked)) {
+      setDraggedId(null);
+      dragPositionRef.current = null;
+      setMessage(targets.length > 1 ? "Unlock every selected item before moving the group." : "Unlock this item before moving it.");
+      return;
+    }
     setDraggedId(id);
     const point = pointOnBoard(event.clientX, event.clientY);
     const originals = elements.filter((element) => ids.includes(element.id)).map((element) => ({ ...element }));
@@ -282,6 +299,10 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
     event.stopPropagation();
     setSelectedId(element.id);
     setSelectedIds([element.id]);
+    if (element.locked) {
+      setMessage("Unlock this item before resizing it.");
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     resizeRef.current = { id: element.id, startX: event.clientX, startY: event.clientY, width: element.width, height: element.height, finalWidth: element.width, finalHeight: element.height, original: { ...element } };
     setResizingId(element.id);
@@ -389,7 +410,7 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
   }
 
   function recordHistory(changes: TransformHistoryEntry["changes"]) {
-    const meaningful = changes.filter((change) => change.before.x !== change.after.x || change.before.y !== change.after.y || change.before.width !== change.after.width || change.before.height !== change.after.height || change.before.rotation !== change.after.rotation);
+    const meaningful = changes.filter((change) => change.before.x !== change.after.x || change.before.y !== change.after.y || change.before.width !== change.after.width || change.before.height !== change.after.height || change.before.rotation !== change.after.rotation || change.before.locked !== change.after.locked);
     if (!meaningful.length) return;
     historyRef.current = [...historyRef.current.slice(0, historyIndexRef.current), { kind: "transform", changes: meaningful }];
     historyIndexRef.current = historyRef.current.length;
@@ -403,6 +424,13 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
     setHistoryVersion((value) => value + 1);
   }
 
+  function recordCreateHistory(snapshots: LayoutElementRecord[]) {
+    if (!snapshots.length) return;
+    historyRef.current = [...historyRef.current.slice(0, historyIndexRef.current), { kind: "create", snapshots: snapshots.map((snapshot) => ({ ...snapshot })), activeIds: snapshots.map((snapshot) => snapshot.id) }];
+    historyIndexRef.current = historyRef.current.length;
+    setHistoryVersion((value) => value + 1);
+  }
+
   async function restoreHistory(direction: "undo" | "redo") {
     const nextIndex = direction === "undo" ? historyIndexRef.current - 1 : historyIndexRef.current;
     const entry = historyRef.current[nextIndex];
@@ -412,23 +440,43 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
         const restored = entry.changes.map((change) => direction === "undo" ? change.before : change.after);
         const byId = new Map(restored.map((element) => [element.id, element]));
         setElements((items) => items.map((item) => byId.get(item.id) ?? item));
-        for (const element of restored) queueSilentElementSave(element, { x: element.x, y: element.y, width: element.width, height: element.height, rotation: element.rotation, label: element.label, zone: element.zone, floor: element.floor, color: element.color });
-      } else if (direction === "undo") {
-        const restored = await Promise.all(entry.snapshots.map(async ({ id: _id, ...snapshot }) => {
-          const response = await fetch("/api/admin/layout/elements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) });
-          const body = await response.json();
-          if (!response.ok) throw new Error(body.error ?? "Could not restore the deleted layout item.");
-          return body.element as LayoutElementRecord;
-        }));
-        entry.activeIds = restored.map((element) => element.id);
-        setElements((items) => [...items, ...restored]);
-      } else {
-        for (const id of entry.activeIds) {
-          const response = await fetch(`/api/admin/layout/elements/${id}`, { method: "DELETE" });
-          const body = await response.json();
-          if (!response.ok) throw new Error(body.error ?? "Could not remove the restored layout item.");
+        for (const element of restored) queueSilentElementSave(element, { x: element.x, y: element.y, width: element.width, height: element.height, rotation: element.rotation, label: element.label, zone: element.zone, floor: element.floor, color: element.color, locked: element.locked });
+      } else if (entry.kind === "delete") {
+        if (direction === "undo") {
+          const restored = await Promise.all(entry.snapshots.map(async ({ id: _id, ...snapshot }) => {
+            const response = await fetch("/api/admin/layout/elements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error ?? "Could not restore the deleted layout item.");
+            return body.element as LayoutElementRecord;
+          }));
+          entry.activeIds = restored.map((element) => element.id);
+          setElements((items) => [...items, ...restored]);
+        } else {
+          for (const id of entry.activeIds) {
+            const response = await fetch(`/api/admin/layout/elements/${id}`, { method: "DELETE" });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error ?? "Could not remove the restored layout item.");
+          }
+          setElements((items) => items.filter((item) => !entry.activeIds.includes(item.id)));
         }
-        setElements((items) => items.filter((item) => !entry.activeIds.includes(item.id)));
+      } else {
+        if (direction === "undo") {
+          for (const id of entry.activeIds) {
+            const response = await fetch(`/api/admin/layout/elements/${id}`, { method: "DELETE" });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error ?? "Could not remove the pasted layout item.");
+          }
+          setElements((items) => items.filter((item) => !entry.activeIds.includes(item.id)));
+        } else {
+          const restored = await Promise.all(entry.snapshots.map(async ({ id: _id, ...snapshot }) => {
+            const response = await fetch("/api/admin/layout/elements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error ?? "Could not restore the pasted layout item.");
+            return body.element as LayoutElementRecord;
+          }));
+          entry.activeIds = restored.map((element) => element.id);
+          setElements((items) => [...items, ...restored]);
+        }
       }
       historyIndexRef.current = direction === "undo" ? nextIndex : nextIndex + 1;
       setHistoryVersion((value) => value + 1);
@@ -440,13 +488,16 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
   async function saveProperties() {
     if (!selected) return;
     const numeric = (key: string, fallback: number) => Number.isFinite(Number(properties[key])) ? Number(properties[key]) : fallback;
-    await persistElement(selected, {
-      label: properties.label,
+    const geometry = selected.locked ? {} : {
       x: numeric("x", selected.x),
       y: numeric("y", selected.y),
       width: numeric("width", selected.width),
       height: numeric("height", selected.height),
-      rotation: numeric("rotation", selected.rotation ?? 0),
+      rotation: numeric("rotation", selected.rotation ?? 0)
+    };
+    await persistElement(selected, {
+      label: properties.label,
+      ...geometry,
       zone: properties.zone,
       floor: properties.floor,
       color: properties.color
@@ -539,6 +590,10 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
   async function nudgeSelected(dx: number, dy: number) {
     const targets = elements.filter((element) => selectedIds.includes(element.id));
     if (!targets.length || saving) return;
+    if (targets.some((element) => element.locked)) {
+      setMessage(targets.length > 1 ? "Unlock every selected item before moving the group." : "Unlock this item before moving it.");
+      return;
+    }
     const updates = targets.map((element) => ({ ...element, x: clamp(element.x + dx, -10000, 10000), y: clamp(element.y + dy, -10000, 10000) }));
     setSaving(true);
     setError("");
@@ -560,6 +615,77 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
     }
   }
 
+  function copySelected() {
+    const snapshots = elements.filter((element) => selectedIds.includes(element.id)).map((element) => ({ ...element }));
+    if (!snapshots.length) return;
+    clipboardRef.current = snapshots;
+    pasteCountRef.current = 0;
+    setClipboardSize(snapshots.length);
+    setMessage(`${snapshots.length} layout item${snapshots.length === 1 ? "" : "s"} copied. Paste creates independent copies.`);
+  }
+
+  async function pasteCopied() {
+    const snapshots = clipboardRef.current;
+    if (!snapshots.length || saving || pasteInFlightRef.current) return;
+    pasteInFlightRef.current = true;
+    const offset = 4 * (pasteCountRef.current + 1);
+    const createdElements: LayoutElementRecord[] = [];
+    const createdSeats: SeatRecord[] = [];
+    setSaving(true);
+    setError("");
+    try {
+      // Create sequentially so copied seats always receive consecutive, collision-free codes.
+      for (const source of snapshots) {
+        const position = { x: clamp(source.x + offset, -10000, 10000), y: clamp(source.y + offset, -10000, 10000) };
+        const payload = source.type === "SEAT"
+          ? { type: "SEAT", ...position, width: source.width, height: source.height, rotation: source.rotation, zone: source.zone, floor: source.floor, locked: false }
+          : { type: source.type, ...position, width: source.width, height: source.height, rotation: source.rotation, label: source.label, zone: source.zone, floor: source.floor, color: source.color, locked: false };
+        const response = await fetch("/api/admin/layout/elements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "Could not paste the layout item.");
+        const element = body.element as LayoutElementRecord;
+        createdElements.push(element);
+        if (body.seat) createdSeats.push(body.seat as SeatRecord);
+      }
+      setElements((items) => [...items, ...createdElements]);
+      if (createdSeats.length) setSeats((items) => [...items, ...createdSeats]);
+      const ids = createdElements.map((element) => element.id);
+      setSelectedIds(ids);
+      setSelectedId(ids[0] ?? null);
+      recordCreateHistory(createdElements);
+      pasteCountRef.current += 1;
+      setMessage(`Pasted ${createdElements.length} item${createdElements.length === 1 ? "" : "s"}.${createdSeats.length ? ` ${createdSeats.length} seat${createdSeats.length === 1 ? " received" : "s received"} new number${createdSeats.length === 1 ? "" : "s"}.` : ""}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not paste the selected layout items.");
+    } finally {
+      pasteInFlightRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function setSelectedLock(locked: boolean) {
+    const targets = elements.filter((element) => selectedIds.includes(element.id));
+    if (!targets.length || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await Promise.all(targets.map(async (element) => {
+        const response = await fetch(`/api/admin/layout/elements/${element.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked }) });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "Could not update the layout lock.");
+        return body.element as LayoutElementRecord;
+      }));
+      const byId = new Map(saved.map((element) => [element.id, element]));
+      setElements((items) => items.map((item) => byId.get(item.id) ?? item));
+      recordHistory(targets.map((element) => ({ id: element.id, before: element, after: byId.get(element.id) ?? element })));
+      setMessage(`${targets.length} item${targets.length === 1 ? "" : "s"} ${locked ? "locked" : "unlocked"}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not update the layout lock.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -572,6 +698,20 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         void keyboardActionsRef.current?.restoreHistory(event.shiftKey ? "redo" : "undo");
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        if (selectedIds.length) {
+          event.preventDefault();
+          keyboardActionsRef.current?.copySelected();
+        }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+        if (clipboardRef.current.length) {
+          event.preventDefault();
+          void keyboardActionsRef.current?.pasteCopied();
+        }
         return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
@@ -620,7 +760,16 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setZoom((current) => Number(clamp(current * Math.exp(-event.deltaY * 0.0015), 0.0001, 1000).toPrecision(5)));
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const cursor = { x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100 };
+      setZoom((current) => {
+        const next = Number(clamp(current * Math.exp(-event.deltaY * 0.0015), 0.0001, 1000).toPrecision(5));
+        setPan((currentPan) => panForCursorZoom(currentPan, current, next, cursor));
+        return next;
+      });
     };
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
@@ -652,17 +801,17 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
           <div className="form-grid"><div className="form-field"><label>Width %</label><input inputMode="decimal" value={draft.width} onChange={(event) => updateDraft("width", event.target.value)} placeholder="Default" /></div><div className="form-field"><label>Height %</label><input inputMode="decimal" value={draft.height} onChange={(event) => updateDraft("height", event.target.value)} placeholder="Default" /></div></div>
           {tool === "ROOM" && <div className="form-field"><label>Room tone</label><input type="color" value={draft.color} onChange={(event) => updateDraft("color", event.target.value)} /></div>}
         </div>
-        <p className="editor-tip">{tool === "SELECT" ? "Drag a selected item to move the whole selection. Click empty grid, press Escape, or use Clear selection to deselect. Hold Space and drag, or use the middle mouse button, to pan. Shift + click selects multiple items; Ctrl + wheel zooms smoothly; Ctrl + A selects all." : `Click the floor plan to place the new ${tool.toLowerCase()}.`}</p>
+        <p className="editor-tip">{tool === "SELECT" ? "Drag a selected item to move the whole selection. Click empty grid, press Escape, or use Clear selection to deselect. Hold Space and drag, or use the middle mouse button, to pan. Shift + click selects multiple items; Ctrl/Cmd + C and V copy and paste; Ctrl/Cmd + wheel zooms at the cursor; Ctrl/Cmd + A selects all." : `Click the floor plan to place the new ${tool.toLowerCase()}.`}</p>
       </aside>
 
       <section className="editor-canvas-wrap">
-        <div className="editor-canvas-head"><div><p className="panel-kicker">Editable floor plan</p><strong>{saving ? "Saving changes…" : "Changes save quietly after you release"}</strong></div><div className="editor-canvas-controls"><button type="button" disabled={!canUndo} onClick={() => void restoreHistory("undo")}>Undo</button><button type="button" disabled={!canRedo} onClick={() => void restoreHistory("redo")}>Redo</button>{selectedIds.length ? <button type="button" onClick={() => { setSelectedId(null); setSelectedIds([]); }}>Clear selection</button> : null}<button type="button" aria-label="Zoom out" onClick={() => updateZoom(zoom / 1.25)}>−</button><span>Zoom</span><button type="button" aria-label="Zoom in" onClick={() => updateZoom(zoom * 1.25)}>+</button><button type="button" onClick={() => updateZoom(1)}>Fit board</button><span>{elements.filter((element) => element.type === "SEAT").length} placed seats{selectedIds.length ? ` · ${selectedIds.length} selected` : ""}</span></div></div>
+        <div className="editor-canvas-head"><div><p className="panel-kicker">Editable floor plan</p><strong>{saving ? "Saving changes..." : "Changes save quietly after you release"}</strong></div><div className="editor-canvas-controls"><button type="button" disabled={!canUndo} onClick={() => void restoreHistory("undo")}>Undo</button><button type="button" disabled={!canRedo} onClick={() => void restoreHistory("redo")}>Redo</button><button type="button" disabled={!selectedIds.length || saving} onClick={copySelected}>Copy</button><button type="button" disabled={!clipboardSize || saving} onClick={() => void pasteCopied()}>Paste</button><button type="button" disabled={!selectedIds.length || saving} onClick={() => void setSelectedLock(!allSelectedLocked)}>{allSelectedLocked ? "Unlock" : "Lock"}</button>{selectedIds.length ? <button type="button" onClick={() => { setSelectedId(null); setSelectedIds([]); }}>Clear selection</button> : null}<button type="button" aria-label="Zoom out" onClick={() => updateZoom(zoom / 1.25)}>-</button><span>Zoom</span><button type="button" aria-label="Zoom in" onClick={() => updateZoom(zoom * 1.25)}>+</button><button type="button" onClick={() => updateZoom(1)}>Fit board</button><span>{elements.filter((element) => element.type === "SEAT").length} placed seats{selectedIds.length ? ` / ${selectedIds.length} selected` : ""}</span></div></div>
         <div className="editor-canvas-viewport" ref={viewportRef}>
         <div className={`editor-canvas ${tool !== "SELECT" ? "is-placing" : ""} ${panning ? "is-panning" : ""}`} ref={canvasRef} onPointerDownCapture={beginCanvasPointer} onPointerDown={placeElement} onPointerMove={moveSelected} onPointerUp={finishMove} onPointerLeave={finishMove}>
           {ordered.map((element) => {
             const seat = element.seatId ? seats.find((item) => item.id === element.seatId) : undefined;
             const label = element.type === "SEAT" ? (seat?.code ?? element.label) : element.label;
-            return <button key={element.id} type="button" className={`editor-element editor-${element.type.toLowerCase()} ${selectedIds.includes(element.id) ? "is-selected" : ""}`} style={styleFor(element, zoom, pan)} onPointerDown={(event) => selectElement(event, element.id)} title={label}>{element.type === "SEAT" && seat ? <><span>{label}</span><i className={`dot-${seat.status.toLowerCase()}`} /></> : <span>{label}</span>}{selectedId === element.id && <span className="editor-resize-handle" aria-label="Drag to resize" onPointerDown={(event) => startResize(event, element)} />}</button>;
+            return <button key={element.id} type="button" className={`editor-element editor-${element.type.toLowerCase()} ${selectedIds.includes(element.id) ? "is-selected" : ""} ${element.locked ? "is-locked" : ""}`} style={styleFor(element, zoom, pan)} onPointerDown={(event) => selectElement(event, element.id)} title={`${label ?? element.type}${element.locked ? " (locked)" : ""}`}>{element.type === "SEAT" && seat ? <><span>{label}</span><i className={`dot-${seat.status.toLowerCase()}`} /></> : <span>{label}</span>}{element.locked && <span className="editor-lock-mark" aria-hidden="true">Locked</span>}{selectedId === element.id && !element.locked && <span className="editor-resize-handle" aria-label="Drag to resize" onPointerDown={(event) => startResize(event, element)} />}</button>;
           })}
         </div>
         </div>
@@ -672,7 +821,7 @@ export function LayoutEditor({ initialElements, initialSeats, initialBlueprints 
 
       <aside className="editor-inspector">
         <p className="panel-kicker">Properties</p>
-        {!selected ? <div className="editor-empty"><strong>No element selected</strong><span>Select an item from the map to edit its dimensions, label, and placement.</span></div> : <div className="stack-tight"><div className="inspector-heading"><strong>{selected.type.toLowerCase()}</strong>{selectedSeat && <StatusBadge status={selectedSeat.status} />}</div><div className="form-field"><label>Label</label><input value={properties.label ?? ""} onChange={(event) => setProperties((current) => ({ ...current, label: event.target.value }))} /></div>{selectedSeat && <><div className="form-field"><label>Seat code</label><input value={properties.seatCode ?? ""} onChange={(event) => setProperties((current) => ({ ...current, seatCode: event.target.value }))} /></div><div className="form-field"><label>Seat display name</label><input value={properties.seatLabel ?? ""} onChange={(event) => setProperties((current) => ({ ...current, seatLabel: event.target.value }))} /></div></>}<div className="form-grid"><div className="form-field"><label>X</label><input value={properties.x ?? ""} onChange={(event) => setProperties((current) => ({ ...current, x: event.target.value }))} /></div><div className="form-field"><label>Y</label><input value={properties.y ?? ""} onChange={(event) => setProperties((current) => ({ ...current, y: event.target.value }))} /></div><div className="form-field"><label>Width</label><input value={properties.width ?? ""} onChange={(event) => setProperties((current) => ({ ...current, width: event.target.value }))} /></div><div className="form-field"><label>Height</label><input value={properties.height ?? ""} onChange={(event) => setProperties((current) => ({ ...current, height: event.target.value }))} /></div></div><div className="form-grid"><div className="form-field"><label>Zone</label><input value={properties.zone ?? ""} onChange={(event) => setProperties((current) => ({ ...current, zone: event.target.value }))} /></div><div className="form-field"><label>Floor</label><input value={properties.floor ?? ""} onChange={(event) => setProperties((current) => ({ ...current, floor: event.target.value }))} /></div></div>{selected.type === "ROOM" && <div className="form-field"><label>Room tone</label><input type="color" value={properties.color ?? "#d9e8dc"} onChange={(event) => setProperties((current) => ({ ...current, color: event.target.value }))} /></div>}<button className="button button-secondary" type="button" disabled={saving} onClick={() => void saveProperties()}>Save properties</button>{selectedSeat ? <><button className="button button-danger" type="button" disabled={saving} onClick={() => void deleteSelectedSeat()}>Delete seat permanently</button><button className="text-button danger" type="button" disabled={saving} onClick={() => void removeSelected(true)}>Disable seat and remove from map</button></> : <button className="button button-danger" type="button" disabled={saving} onClick={() => void removeSelected(false)}>Remove {selected.type.toLowerCase()}</button>}</div>}
+        {!selected ? <div className="editor-empty"><strong>No element selected</strong><span>Select an item from the map to edit its dimensions, label, and placement.</span></div> : <div className="stack-tight"><div className="inspector-heading"><strong>{selected.type.toLowerCase()}</strong><span className="editor-lock-state">{selected.locked ? "Locked" : "Unlocked"}</span>{selectedSeat && <StatusBadge status={selectedSeat.status} />}</div><div className="form-field"><label>Label</label><input value={properties.label ?? ""} onChange={(event) => setProperties((current) => ({ ...current, label: event.target.value }))} /></div>{selectedSeat && <><div className="form-field"><label>Seat code</label><input value={properties.seatCode ?? ""} onChange={(event) => setProperties((current) => ({ ...current, seatCode: event.target.value }))} /></div><div className="form-field"><label>Seat display name</label><input value={properties.seatLabel ?? ""} onChange={(event) => setProperties((current) => ({ ...current, seatLabel: event.target.value }))} /></div></>}<div className="form-grid"><div className="form-field"><label>X</label><input disabled={saving || selected.locked} value={properties.x ?? ""} onChange={(event) => setProperties((current) => ({ ...current, x: event.target.value }))} /></div><div className="form-field"><label>Y</label><input disabled={saving || selected.locked} value={properties.y ?? ""} onChange={(event) => setProperties((current) => ({ ...current, y: event.target.value }))} /></div><div className="form-field"><label>Width</label><input disabled={saving || selected.locked} value={properties.width ?? ""} onChange={(event) => setProperties((current) => ({ ...current, width: event.target.value }))} /></div><div className="form-field"><label>Height</label><input disabled={saving || selected.locked} value={properties.height ?? ""} onChange={(event) => setProperties((current) => ({ ...current, height: event.target.value }))} /></div></div><div className="form-grid"><div className="form-field"><label>Zone</label><input value={properties.zone ?? ""} onChange={(event) => setProperties((current) => ({ ...current, zone: event.target.value }))} /></div><div className="form-field"><label>Floor</label><input value={properties.floor ?? ""} onChange={(event) => setProperties((current) => ({ ...current, floor: event.target.value }))} /></div></div>{selected.type === "ROOM" && <div className="form-field"><label>Room tone</label><input type="color" value={properties.color ?? "#d9e8dc"} onChange={(event) => setProperties((current) => ({ ...current, color: event.target.value }))} /></div>}<button className="button button-secondary" type="button" disabled={saving} onClick={() => void saveProperties()}>Save properties</button><button className="button button-secondary" type="button" disabled={saving} onClick={() => void setSelectedLock(!allSelectedLocked)}>{allSelectedLocked ? "Unlock selected" : "Lock selected"}</button>{selectedSeat ? <><button className="button button-danger" type="button" disabled={saving} onClick={() => void deleteSelectedSeat()}>Delete seat permanently</button><button className="text-button danger" type="button" disabled={saving} onClick={() => void removeSelected(true)}>Disable seat and remove from map</button></> : <button className="button button-danger" type="button" disabled={saving} onClick={() => void removeSelected(false)}>Remove {selected.type.toLowerCase()}</button>}</div>}
       </aside>
     </div>
   );

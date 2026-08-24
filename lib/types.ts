@@ -28,6 +28,7 @@ export type LayoutElementRecord = {
   floor?: string;
   zone?: string;
   color?: string;
+  locked?: boolean;
 };
 
 export type LayoutBlueprintRecord = {

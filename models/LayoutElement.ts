@@ -16,7 +16,8 @@ const layoutElementSchema = new Schema(
     seatId: { type: String },
     floor: { type: String },
     zone: { type: String },
-    color: { type: String }
+    color: { type: String },
+    locked: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

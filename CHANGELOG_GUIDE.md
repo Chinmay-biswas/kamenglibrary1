@@ -4,6 +4,11 @@ This file tracks the implementation changes made in the project so far.
 
 ## 2026-08-24
 
+- Added Layout Studio Ctrl/Cmd + C and Ctrl/Cmd + V support for selected rooms, walls, doors, furniture, labels, and seats. Pasted seats are created through the normal seat service so their seat codes and display names use the next available number, while pasted items keep their relative layout and are selected immediately.
+- Added visible Copy, Paste, Lock, and Unlock controls to Layout Studio. Pasted items begin unlocked so they can be positioned independently, and pasted items can be undone or redone without changing their assigned seat codes.
+- Added persistent per-item layout locks in MongoDB, local fallback storage, saved blueprints, and the admin API. Locked items cannot be dragged, resized, or nudged, and their position and size fields are disabled in the inspector until unlocked.
+- Changed Ctrl/Cmd + wheel zoom to preserve the exact layout point under the mouse cursor instead of zooming around the board center, while continuing to prevent the browser zoom gesture inside the editor.
+- Added `npm run test:layout-editing` to verify automatic seat numbering, local lock persistence, server-side lock enforcement, blueprint snapshots, and cursor-centered zoom math.
 - Added reliable seat-expiry maintenance: reservations now move from two hours of occupancy into an exact 10-minute re-scan grace period, then release without extending grace after a delayed background job.
 - Added durable holder alerts for grace start, occupied-seat attendance checks, resolved checks, transfers, and reservation release. Alerts are always saved in-app and also email the holder when `RESEND_API_KEY` and `EMAIL_FROM` are configured.
 - Added a secure five-minute GitHub Actions maintenance worker that calls the deployed app's protected lifecycle endpoint, plus student-facing grace instructions and direct Notifications navigation.
