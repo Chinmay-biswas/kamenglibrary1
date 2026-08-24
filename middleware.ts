@@ -16,7 +16,17 @@ export default async function middleware(req: NextRequest) {
   }
   const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   const role = token?.role;
-  if (!role || (role !== "ADMIN" && role !== "SUPER_ADMIN")) {
+  const email = typeof token?.email === "string" ? token.email : null;
+  const configuredSuperAdmin = Boolean(
+    email && (process.env.SUPER_ADMIN_EMAIL ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .includes(email.toLowerCase())
+  );
+  // JWT roles can be stale after an environment role change. The server-side
+  // admin pages and APIs still perform their own authorization checks.
+  const hasAdminAccess = configuredSuperAdmin || role === "ADMIN" || role === "SUPER_ADMIN";
+  if (!hasAdminAccess) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Admin access is required." }, { status: 403 });
     return NextResponse.redirect(new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url));
   }
