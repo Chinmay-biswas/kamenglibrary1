@@ -3,16 +3,19 @@ import { isAuthenticationConfigured } from "@/lib/auth";
 import { canUseMongo } from "@/lib/mongodb";
 import { AdminNav, PageIntro } from "@/components/ui";
 import { requireAdminPage } from "@/lib/page-auth";
+import { configuredEmailProviders, emailProviderLabel } from "@/lib/email-service";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
   await requireAdminPage("/admin/settings");
   const settings = await listSettings();
+  const emailProviders = configuredEmailProviders();
+  const emailProviderNames = emailProviders.map(emailProviderLabel).join(" -> ");
   const checks = [
     ["Microsoft sign-in", isAuthenticationConfigured(), "The IITG Microsoft Entra provider is needed for real student access."],
     ["MongoDB storage", canUseMongo(), "When MongoDB is unavailable, the site safely uses local persistent storage."],
-    ["Email alerts", Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM), "Sends reservation-expiry and attendance-check emails alongside in-app notifications."],
+    ["Email alerts", emailProviders.length > 0, emailProviders.length ? `Uses ${emailProviderNames} for reservation-expiry and attendance-check emails. A fallback is used only after a confirmed provider rejection, never after an uncertain send.` : "Add EMAIL_FROM and at least one provider key to send reservation-expiry and attendance-check emails alongside in-app notifications."],
     ["QR signing", Boolean(process.env.QR_SIGNING_SECRET), "Set this before printing production QR labels."],
     ["Cron protection", Boolean(process.env.CRON_SECRET), "Use this before exposing scheduled maintenance endpoints."]
   ];

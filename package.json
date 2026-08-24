@@ -9,7 +9,8 @@
     "lint": "eslint app components lib auth.ts next.config.mjs scripts types",
     "typecheck": "tsc --noEmit",
     "test:seat-lifecycle": "tsx scripts/verify-seat-lifecycle.ts",
-    "test:layout-editing": "tsx scripts/verify-layout-editing.ts"
+    "test:layout-editing": "tsx scripts/verify-layout-editing.ts",
+    "test:email-fallback": "tsx scripts/verify-email-fallback.ts"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",

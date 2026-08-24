@@ -4,6 +4,8 @@ This file tracks the implementation changes made in the project so far.
 
 ## 2026-08-24
 
+- Replaced the Resend-only email path with a resilience chain: Resend, then Brevo, then Mailjet. The next configured provider is used only after an explicit pre-delivery rejection such as quota, billing, or credential failure; unknown request outcomes intentionally stop to prevent duplicate student alerts.
+- Added multi-provider environment settings, readiness reporting, deployment documentation, and `npm run test:email-fallback` coverage for quota fallback, Mailjet request construction, disabled-email behavior, and no-retry uncertain failures.
 - Added Layout Studio Ctrl/Cmd + C and Ctrl/Cmd + V support for selected rooms, walls, doors, furniture, labels, and seats. Pasted seats are created through the normal seat service so their seat codes and display names use the next available number, while pasted items keep their relative layout and are selected immediately.
 - Added visible Copy, Paste, Lock, and Unlock controls to Layout Studio. Pasted items begin unlocked so they can be positioned independently, and pasted items can be undone or redone without changing their assigned seat codes.
 - Added persistent per-item layout locks in MongoDB, local fallback storage, saved blueprints, and the admin API. Locked items cannot be dragged, resized, or nudged, and their position and size fields are disabled in the inspector until unlocked.
