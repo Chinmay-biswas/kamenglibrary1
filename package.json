@@ -1,1 +1,31 @@
-
+{
+  "name": "kameng-library-seat-management",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint app components lib auth.ts middleware.ts next.config.mjs scripts types",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "html5-qrcode": "^2.3.8",
+    "mongoose": "^8.17.0",
+    "next": "^15.4.1",
+    "next-auth": "^5.0.0-beta.29",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.23",
+    "typescript": "^5.9.2"
+  }
+}
