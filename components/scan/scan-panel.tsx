@@ -32,9 +32,12 @@ export function ScanPanel({ initialToken = "" }: { initialToken?: string }) {
   const [token, setToken] = useState(initialToken);
   const [result, setResult] = useState<Result | null>(null);
   const [working, setWorking] = useState(false);
+  const [cameraState, setCameraState] = useState<"ready" | "starting" | "scanning" | "error">("ready");
+  const [cameraError, setCameraError] = useState("");
   const [currentTime, setCurrentTime] = useState(Date.now());
   const submittedRef = useRef("");
-  const scannerClearRef = useRef<(() => Promise<void>) | null>(null);
+  const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
+  const cameraRunningRef = useRef(false);
   const submitScanRef = useRef<(value?: string) => Promise<void>>(async () => undefined);
 
   async function submitScan(value = token) {
@@ -98,39 +101,81 @@ export function ScanPanel({ initialToken = "" }: { initialToken?: string }) {
     };
   }, [result?.challenge?.expiresAt, result?.challenge?.id]);
 
-  useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      const previousClear = scannerClearRef.current;
-      scannerClearRef.current = null;
-      if (previousClear) {
-        try { await previousClear(); } catch { /* clear failure is ignored */ }
-      }
-      if (!mounted) return;
-      try {
-        const { Html5QrcodeScanner } = await import("html5-qrcode");
-        if (!mounted) return;
-        const scanner = new Html5QrcodeScanner("kameng-qr-reader", { fps: 10, qrbox: { width: 230, height: 230 } }, false);
-        scanner.render((decodedText: string) => { void submitScanRef.current(decodedText); }, () => undefined);
-        scannerClearRef.current = () => scanner.clear();
-      } catch {
-        // The manual field below is intentionally kept as a reliable fallback.
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
+  async function clearCamera() {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    const wasRunning = cameraRunningRef.current;
+    cameraRunningRef.current = false;
+    if (!scanner) return;
+    if (wasRunning) {
+      try { await scanner.stop(); } catch { /* Camera can already be stopped by the browser. */ }
+    }
+    try { await scanner.clear(); } catch { /* The element may already be removed during navigation. */ }
+  }
+
+  async function startRearCamera() {
+    if (cameraState === "starting" || cameraRunningRef.current) return;
+    setCameraState("starting");
+    setCameraError("");
+    await clearCamera();
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode("kameng-qr-reader", { verbose: false });
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: { exact: "environment" } },
+        { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 },
+        (decodedText: string) => {
+          if (submittedRef.current) return;
+          void clearCamera();
+          setCameraState("ready");
+          void submitScanRef.current(decodedText);
+        },
+        () => undefined
+      );
+      cameraRunningRef.current = true;
+      setCameraState("scanning");
+    } catch {
+      await clearCamera();
+      setCameraState("error");
+      setCameraError("Rear camera could not be opened. Allow camera access, then try again.");
+    }
+  }
+
+  async function stopCamera() {
+    await clearCamera();
+    setCameraState("ready");
+  }
 
   useEffect(() => {
     return () => {
-      const leftover = scannerClearRef.current;
-      scannerClearRef.current = null;
-      if (leftover) void leftover().catch(() => undefined);
+      void clearCamera();
     };
   }, []);
 
   return (
     <section className="scan-panel">
-      <div id="kameng-qr-reader" className="qr-reader" />
+      <div className={`camera-stage is-${cameraState}`}>
+        <div id="kameng-qr-reader" className="qr-reader" />
+        {cameraState !== "scanning" && (
+          <div className="camera-launch">
+            <span className="camera-launch-mark" aria-hidden="true"><i /><i /><i /><i /></span>
+            <p className="panel-kicker">Seat QR scanner</p>
+            <h2>Point your rear camera at the QR label.</h2>
+            <p>Camera opens only when you start scanning.</p>
+            <button className="button camera-launch-button" type="button" disabled={cameraState === "starting"} onClick={() => void startRearCamera()}>
+              {cameraState === "starting" ? "Opening rear camera..." : cameraState === "error" ? "Try rear camera again" : "Start scanning"}
+            </button>
+            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+          </div>
+        )}
+        {cameraState === "scanning" && (
+          <div className="camera-toolbar">
+            <span><i /> Rear camera active</span>
+            <button type="button" onClick={() => void stopCamera()}>Stop</button>
+          </div>
+        )}
+      </div>
       <p className="scan-help">Allow camera and location access. Location is checked against the library areas set by the admin.</p>
       <div className="manual-scan">
         <label htmlFor="qr-token">No camera? Paste the QR link or signed token.</label>
