@@ -14,8 +14,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   providers,
   callbacks: {
-    async signIn({ profile, account }) {
-      const email = profile?.email ?? profile?.preferred_username ?? null;
+    async signIn({ user, profile, account }) {
+      // Auth.js normalizes the provider account email on user. Some Google
+      // profile payloads omit email even though the signed-in user has one.
+      const email = user.email ?? profile?.email ?? profile?.preferred_username ?? null;
       if (!email) return false;
       if (account?.provider === "microsoft-entra-id" && process.env.ALLOWED_EMAIL_DOMAIN && !email.endsWith(`@${process.env.ALLOWED_EMAIL_DOMAIN}`)) return false;
       await upsertAuthUser({ email, provider: account?.provider === "google" ? "google" : "microsoft-entra-id", providerAccountId: String(profile?.sub ?? profile?.oid ?? email), name: profile?.name });
