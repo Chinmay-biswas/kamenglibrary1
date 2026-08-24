@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { getAuthUser } from "./user-service";
+import { isSuperAdmin } from "./permissions";
 
 export type CurrentUser = {
   id: string;
@@ -30,7 +31,7 @@ export async function getCurrentUser() {
   return {
     id: storedUser.id ?? session.user.id ?? session.user.email,
     email: storedUser.email,
-    role: storedUser.role ?? session.user.role ?? "STUDENT",
+    role: isSuperAdmin(storedUser.email) ? "SUPER_ADMIN" : (storedUser.role ?? session.user.role ?? "STUDENT"),
     profileComplete: storedUser.profileComplete,
     name: storedUser.name || session.user.name || undefined
   };

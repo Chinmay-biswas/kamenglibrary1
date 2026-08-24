@@ -25,7 +25,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = token.email ?? profile?.email ?? profile?.preferred_username ?? null;
       if (email) {
         const user = await getAuthUser(email);
-        token.role = user.role ?? (isSuperAdmin(email) ? "SUPER_ADMIN" : "STUDENT");
+        // Environment-configured super admins must take priority over a role
+        // persisted before the variable was added or changed.
+        token.role = isSuperAdmin(email) ? "SUPER_ADMIN" : (user.role ?? "STUDENT");
         token.email = user.email;
         token.sub = user.id;
         token.profileComplete = user.profileComplete;

@@ -13,6 +13,7 @@ This file tracks the implementation changes made in the project so far.
 - Made expiry dependable without a deployment-specific scheduler: a scan first processes elapsed challenges, and an active challenger countdown performs a protected status refresh exactly when its 15 minutes end.
 - Updated the public floor-plan map on `/` and `/seats` to calculate the actual saved layout bounds, including rotated elements, so rooms and seats placed outside the original board are fitted into view instead of being clipped.
 - Added public Privacy Policy and Terms of Service pages, with a responsive site footer linking to both, for production Google OAuth branding.
+- Made the configured `SUPER_ADMIN_EMAIL` override an older stored student role immediately, including durable local fallback users, so production admin access remains correct after environment changes.
 
 ## 2026-08-19
 

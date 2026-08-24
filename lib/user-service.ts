@@ -20,7 +20,14 @@ async function localUser(email: string, name = "") {
   const key = email.toLowerCase();
   const store = await readLocalStore();
   const existing = store.users[key];
-  if (existing) return existing as AuthUserRecord;
+  if (existing) {
+    if (isSuperAdmin(email) && existing.role !== "SUPER_ADMIN") {
+      const promoted = { ...existing, role: "SUPER_ADMIN" as const };
+      await updateLocalStore((next) => { next.users[key] = promoted; });
+      return promoted as AuthUserRecord;
+    }
+    return existing as AuthUserRecord;
+  }
   const created: AuthUserRecord = { id: email || randomUUID(), email, role: isSuperAdmin(email) ? "SUPER_ADMIN" : "STUDENT", name, rollNo: "", hostelRoomNo: "", phoneNumber: "", profileComplete: false };
   await updateLocalStore((next) => { next.users[key] = created; });
   return created;
