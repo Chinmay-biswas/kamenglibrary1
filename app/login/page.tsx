@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { getCurrentUser, isGoogleConfigured, isMicrosoftConfigured } from "@/lib/auth";
+import { SignedInRedirect } from "@/components/auth/signed-in-redirect";
 import { signInWithGoogle, signInWithMicrosoft } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const { callbackUrl } = await searchParams;
   const callback = callbackUrl?.startsWith("/") && !callbackUrl.startsWith("//") ? callbackUrl : "/dashboard";
   const user = await getCurrentUser();
-  if (user) redirect(user.profileComplete ? callback : `/profile/setup?callbackUrl=${encodeURIComponent(callback)}`);
+  if (user) return <SignedInRedirect destination={user.profileComplete ? callback : `/profile/setup?callbackUrl=${encodeURIComponent(callback)}`} />;
   const googleConfigured = isGoogleConfigured();
   const microsoftConfigured = isMicrosoftConfigured();
 

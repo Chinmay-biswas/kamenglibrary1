@@ -18,6 +18,7 @@ This file tracks the implementation changes made in the project so far.
 - Fixed MongoDB Google sign-in failure for the configured super-admin: the user upsert now writes `role` through only one MongoDB update operator, avoiding the `Updating the path 'role' would create a conflict` error.
 - Fixed stale-session admin redirects by allowing the configured `SUPER_ADMIN_EMAIL` through the edge middleware before its JWT role claim is refreshed; server pages and APIs retain their independent role checks.
 - Preserved safe internal `callbackUrl` destinations through existing sign-in sessions and first-time profile setup, so an admin request returns to `/admin` instead of always landing on the student dashboard.
+- Replaced the invisible signed-in login redirect with a client-side handoff and visible Continue fallback, preventing a blank `/login?callbackUrl=/admin` page when browser navigation is delayed or intercepted.
 
 ## 2026-08-19
 
