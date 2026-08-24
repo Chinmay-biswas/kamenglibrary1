@@ -42,9 +42,23 @@ export async function upsertAuthUser(input: { email: string; provider: "microsof
   if (!canUseMongo()) return localUser(input.email, input.name ?? "");
   const connection = await connectMongo();
   if (!connection) return localUser(input.email, input.name ?? "");
+  const superAdmin = isSuperAdmin(input.email);
   const user = await UserModel.findOneAndUpdate(
     { email: input.email },
-    { $set: { provider: input.provider, providerAccountId: input.providerAccountId, ...(isSuperAdmin(input.email) ? { role: "SUPER_ADMIN" } : {}) }, $setOnInsert: { email: input.email, microsoftId: input.provider === "microsoft-entra-id" ? input.providerAccountId : undefined, name: input.name ?? "", role: isSuperAdmin(input.email) ? "SUPER_ADMIN" : "STUDENT", profileCompleted: false } },
+    {
+      $set: {
+        provider: input.provider,
+        providerAccountId: input.providerAccountId,
+        ...(superAdmin ? { role: "SUPER_ADMIN" } : {})
+      },
+      $setOnInsert: {
+        email: input.email,
+        microsoftId: input.provider === "microsoft-entra-id" ? input.providerAccountId : undefined,
+        name: input.name ?? "",
+        ...(superAdmin ? {} : { role: "STUDENT" }),
+        profileCompleted: false
+      }
+    },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
   return toRecord(user);

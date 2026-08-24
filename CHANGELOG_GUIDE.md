@@ -15,6 +15,7 @@ This file tracks the implementation changes made in the project so far.
 - Added public Privacy Policy and Terms of Service pages, with a responsive site footer linking to both, for production Google OAuth branding.
 - Made the configured `SUPER_ADMIN_EMAIL` override an older stored student role immediately, including durable local fallback users, so production admin access remains correct after environment changes.
 - Fixed Google sign-in callback handling to use Auth.js&apos;s normalized account email before optional provider-profile fields, preventing false Access Denied responses for valid Google accounts.
+- Fixed MongoDB Google sign-in failure for the configured super-admin: the user upsert now writes `role` through only one MongoDB update operator, avoiding the `Updating the path 'role' would create a conflict` error.
 
 ## 2026-08-19
 
