@@ -6,12 +6,12 @@ import { signInWithGoogle, signInWithMicrosoft } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ callbackUrl?: string }> }) {
-  const user = await getCurrentUser();
-  if (user) redirect(user.profileComplete ? "/dashboard" : "/profile/setup");
   const { callbackUrl } = await searchParams;
+  const callback = callbackUrl?.startsWith("/") && !callbackUrl.startsWith("//") ? callbackUrl : "/dashboard";
+  const user = await getCurrentUser();
+  if (user) redirect(user.profileComplete ? callback : `/profile/setup?callbackUrl=${encodeURIComponent(callback)}`);
   const googleConfigured = isGoogleConfigured();
   const microsoftConfigured = isMicrosoftConfigured();
-  const callback = callbackUrl?.startsWith("/") ? callbackUrl : "/dashboard";
 
   return (
     <main className="login-page">

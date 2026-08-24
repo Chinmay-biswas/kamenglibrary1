@@ -17,6 +17,7 @@ This file tracks the implementation changes made in the project so far.
 - Fixed Google sign-in callback handling to use Auth.js&apos;s normalized account email before optional provider-profile fields, preventing false Access Denied responses for valid Google accounts.
 - Fixed MongoDB Google sign-in failure for the configured super-admin: the user upsert now writes `role` through only one MongoDB update operator, avoiding the `Updating the path 'role' would create a conflict` error.
 - Fixed stale-session admin redirects by allowing the configured `SUPER_ADMIN_EMAIL` through the edge middleware before its JWT role claim is refreshed; server pages and APIs retain their independent role checks.
+- Preserved safe internal `callbackUrl` destinations through existing sign-in sessions and first-time profile setup, so an admin request returns to `/admin` instead of always landing on the student dashboard.
 
 ## 2026-08-19
 
